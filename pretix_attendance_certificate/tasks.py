@@ -1,13 +1,80 @@
 import datetime
+
+from django.utils import timezone
 from pretix.celery_app import app
 from pretix.base.services.tasks import ProfiledEventTask
-from pretix.base.models import Event, InvoiceAddress, OrderPosition, User, CachedFile
+from pretix.base.models import (
+    Event,
+    InvoiceAddress,
+    OrderPosition,
+    User,
+    CachedFile,
+)
 from i18nfield.strings import LazyI18nString
 from pretix.base.services.mail import mail
 from pretix.base.i18n import language
 from pretix.helpers.format import format_map
 from pretix.base.email import get_email_context
 from pretix_attendance_certificate.render import render_certificate
+
+from pretix.base.models import Checkin
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def has_valid_checkin(position):
+    """
+    Verifica se o participante está presente.
+
+    Considera o último registro de check-in bem-sucedido.
+    Uma entrada (entry) confirma a presença.
+    Uma saída (exit) encerra a presença.
+    """
+    last_checkin = (
+        Checkin.objects.filter(
+            position=position,
+            successful=True,
+        )
+        .order_by("-datetime", "-pk")
+        .first()
+    )
+
+    return last_checkin is not None and last_checkin.type == "entry"
+
+
+@app.task(base=ProfiledEventTask, acks_late=True)
+def send_automatic_certificate(event: Event, position_id: int):
+    from pretix_attendance_certificate.email_defaults import (
+        DEFAULT_SUBJECT,
+        DEFAULT_MESSAGE,
+    )
+
+    position = OrderPosition.objects.get(
+        pk=position_id,
+        order__event=event,
+    )
+
+    if not has_valid_checkin(position):
+        return
+
+    if position.canceled or position.order.status != "p":
+        return
+
+    recipient = position.attendee_email or position.order.email
+    if not recipient:
+        return
+
+    send_certificate_of_attendance_mails.apply_async(
+        kwargs={
+            "event": event.pk,
+            "user": None,
+            "subject": {"en": str(DEFAULT_SUBJECT)},
+            "message": {"en": str(DEFAULT_MESSAGE)},
+            "objects": [position.pk],
+        }
+    )
 
 
 @app.task(base=ProfiledEventTask, acks_late=True)
@@ -18,10 +85,39 @@ def send_certificate_of_attendance_mails(
 
     subject = LazyI18nString(subject)
     message = LazyI18nString(message)
-    positions = OrderPosition.objects.filter(pk__in=objects, order__event=event)
+
+    positions = OrderPosition.objects.filter(
+        pk__in=objects,
+        order__event=event,
+    ).select_related("order")
 
     for position in positions:
         order = position.order
+
+        if not has_valid_checkin(position):
+            order.log_action(
+                "pretix_attendance_certificate.skipped.no_checkin",
+                user=user,
+                data={
+                    "position": position.positionid,
+                    "reason": "No valid check-in found",
+                },
+            )
+            continue
+
+        # Prioriza o e-mail individual do participante.
+        # Se estiver vazio, utiliza o e-mail do pedido.
+        recipient = (position.attendee_email or "").strip() or (
+            order.email or ""
+        ).strip()
+
+        if not recipient:
+            order.log_action(
+                "pretix_attendance_certificate.skipped.no_email",
+                user=user,
+                data={"position": position.positionid},
+            )
+            continue
 
         try:
             invoice_address = order.invoice_address
@@ -35,15 +131,20 @@ def send_certificate_of_attendance_mails(
                 position=position,
                 invoice_address=invoice_address,
             )
-            rendered_certificate = render_certificate(position=position, event=event)
+
+            rendered_certificate = render_certificate(
+                position=position,
+                event=event,
+            )
+
             cache_file = CachedFile.objects.create(
                 filename="certificate_of_attendance.pdf",
-                expires=datetime.datetime.now() + datetime.timedelta(days=7),
+                expires=timezone.now() + datetime.timedelta(days=7),
                 file=rendered_certificate,
             )
 
             mail(
-                position.attendee_email,
+                recipient,
                 subject,
                 message,
                 email_context,
@@ -54,17 +155,20 @@ def send_certificate_of_attendance_mails(
                 attach_tickets=False,
                 attach_cached_files=[cache_file],
             )
+
             order.log_action(
                 "pretix_attendance_certificate.sent.attendee",
                 user=user,
                 data={
                     "position": position.positionid,
                     "subject": format_map(
-                        subject.localize(order.locale), email_context
+                        subject.localize(order.locale),
+                        email_context,
                     ),
                     "message": format_map(
-                        message.localize(order.locale), email_context
+                        message.localize(order.locale),
+                        email_context,
                     ),
-                    "recipient": position.attendee_email,
+                    "recipient": recipient,
                 },
             )
