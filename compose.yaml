@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: pretix
+      POSTGRES_USER: pretix
+      POSTGRES_PASSWORD: pretix_dev_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025"
+
+  pretix:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: pretix-certificados:dev
+    depends_on:
+      - postgres
+      - redis
+      - mailpit
+    ports:
+      - "8000:80"
+    volumes:
+      - ./config:/etc/pretix:ro
+      - pretix_data:/data
+
+volumes:
+  postgres_data:
+  pretix_data:

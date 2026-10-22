@@ -1,0 +1,8 @@
+FROM pretix/standalone:stable
+
+USER root
+
+COPY . /opt/pretix-attendance-certificate
+
+RUN pip install --no-cache-dir \
+    /opt/pretix-attendance-certificate

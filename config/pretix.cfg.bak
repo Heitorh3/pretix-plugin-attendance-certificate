@@ -1,0 +1,5 @@
+[mail]
+from=certificados@localhost
+host=mailpit
+port=1025
+tls=off
