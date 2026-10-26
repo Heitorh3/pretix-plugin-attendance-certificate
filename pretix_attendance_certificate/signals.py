@@ -24,7 +24,7 @@ def control_nav_import(sender, request=None, **kwargs):
     )
     if not p:
         return []
-    return [
+    nav = [
         {
             "label": _("Certificate of Attendance"),
             "url": reverse(
@@ -76,6 +76,24 @@ def control_nav_import(sender, request=None, **kwargs):
             ],
         }
     ]
+    if request.user.has_event_permission(
+        request.organizer, request.event, "can_change_event_settings", request
+    ):
+        nav[0]["children"].append(
+            {
+                "label": _("Settings"),
+                "url": reverse(
+                    "plugins:pretix_attendance_certificate:settings",
+                    kwargs={
+                        "event": request.event.slug,
+                        "organizer": request.event.organizer.slug,
+                    },
+                ),
+                "active": url.namespace == "plugins:pretix_attendance_certificate"
+                and url.url_name == "settings",
+            }
+        )
+    return nav
 
 
 @receiver(nav_event_settings, dispatch_uid="certificate_of_attendance_nav_settings")
