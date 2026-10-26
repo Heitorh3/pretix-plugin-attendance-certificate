@@ -18,6 +18,15 @@ def bg_name(instance, filename: str) -> str:
     )
 
 
+class CertificateDelivery(models.Model):
+    position = models.OneToOneField(
+        "pretixbase.OrderPosition",
+        on_delete=models.CASCADE,
+    )
+    status = models.CharField(max_length=20)
+    sent_at = models.DateTimeField(null=True, blank=True)
+
+
 class AttendanceCertificateLayout(LoggedModel):
     event = models.ForeignKey(
         "pretixbase.Event",
