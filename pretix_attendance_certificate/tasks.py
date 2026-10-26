@@ -1,5 +1,6 @@
 import datetime
 
+from django.db import transaction
 from django.utils import timezone
 from pretix.celery_app import app
 from pretix.base.services.tasks import ProfiledEventTask
@@ -16,6 +17,7 @@ from pretix.base.i18n import language
 from pretix.helpers.format import format_map
 from pretix.base.email import get_email_context
 from pretix_attendance_certificate.render import render_certificate
+from pretix_attendance_certificate.models import CertificateDelivery
 
 from pretix.base.models import Checkin
 
@@ -26,11 +28,11 @@ logger = logging.getLogger(__name__)
 
 def has_valid_checkin(position):
     """
-    Verifica se o participante está presente.
+    Checks whether the participant is present.
 
-    Considera o último registro de check-in bem-sucedido.
-    Uma entrada (entry) confirma a presença.
-    Uma saída (exit) encerra a presença.
+    Considers the most recent successful check-in record.
+    An entry confirms presence.
+    An exit ends presence.
     """
     last_checkin = (
         Checkin.objects.filter(
@@ -46,10 +48,7 @@ def has_valid_checkin(position):
 
 @app.task(base=ProfiledEventTask, acks_late=True)
 def send_automatic_certificate(event: Event, position_id: int):
-    from pretix_attendance_certificate.email_defaults import (
-        DEFAULT_SUBJECT,
-        DEFAULT_MESSAGE,
-    )
+    from pretix_attendance_certificate.email_defaults import mail_texts
 
     position = OrderPosition.objects.get(
         pk=position_id,
@@ -70,16 +69,21 @@ def send_automatic_certificate(event: Event, position_id: int):
         kwargs={
             "event": event.pk,
             "user": None,
-            "subject": {"en": str(DEFAULT_SUBJECT)},
-            "message": {"en": str(DEFAULT_MESSAGE)},
+            **mail_texts(event),
             "objects": [position.pk],
+            "automatic": True,
         }
     )
 
 
 @app.task(base=ProfiledEventTask, acks_late=True)
 def send_certificate_of_attendance_mails(
-    event: Event, user: int, subject: dict, message: dict, objects: list
+    event: Event,
+    user: int,
+    subject: dict,
+    message: dict,
+    objects: list,
+    automatic: bool = False,
 ):
     user = User.objects.get(pk=user) if user else None
 
@@ -119,56 +123,123 @@ def send_certificate_of_attendance_mails(
             )
             continue
 
+        with transaction.atomic():
+            (
+                delivery,
+                created,
+            ) = CertificateDelivery.objects.select_for_update().get_or_create(
+                position=position,
+                defaults={
+                    "status": CertificateDelivery.STATUS_SENDING,
+                    "recipient": recipient,
+                    "automatic": automatic,
+                },
+            )
+            # Automatic sends happen at most once per position. Only a failed
+            # attempt is retried, on the next check-in.
+            if (
+                automatic
+                and not created
+                and delivery.status != CertificateDelivery.STATUS_FAILED
+            ):
+                order.log_action(
+                    "pretix_attendance_certificate.skipped.duplicate",
+                    user=user,
+                    data={"position": position.positionid},
+                )
+                continue
+            if not created:
+                delivery.status = CertificateDelivery.STATUS_SENDING
+                delivery.recipient = recipient
+                delivery.automatic = automatic
+                delivery.sent_at = None
+                delivery.error = ""
+                delivery.save(
+                    update_fields=[
+                        "status",
+                        "recipient",
+                        "automatic",
+                        "sent_at",
+                        "error",
+                        "updated",
+                    ]
+                )
+
         try:
-            invoice_address = order.invoice_address
-        except InvoiceAddress.DoesNotExist:
-            invoice_address = InvoiceAddress(order=order)
+            try:
+                invoice_address = order.invoice_address
+            except InvoiceAddress.DoesNotExist:
+                invoice_address = InvoiceAddress(order=order)
 
-        with language(order.locale, event.settings.region):
-            email_context = get_email_context(
-                event=event,
-                order=order,
-                position=position,
-                invoice_address=invoice_address,
+            with language(order.locale, event.settings.region):
+                email_context = get_email_context(
+                    event=event,
+                    order=order,
+                    position=position,
+                    invoice_address=invoice_address,
+                )
+
+                rendered_certificate = render_certificate(
+                    position=position,
+                    event=event,
+                )
+
+                cache_file = CachedFile.objects.create(
+                    filename="certificate_of_attendance.pdf",
+                    expires=timezone.now() + datetime.timedelta(days=7),
+                    file=rendered_certificate,
+                )
+
+                mail(
+                    recipient,
+                    subject,
+                    message,
+                    email_context,
+                    event,
+                    locale=order.locale,
+                    order=order,
+                    position=position,
+                    attach_tickets=False,
+                    attach_cached_files=[cache_file],
+                )
+        except Exception as exc:
+            # Record the failure and keep going, so one broken position does
+            # not stop the remaining attendees of a bulk send.
+            logger.exception(
+                "Could not send certificate of attendance for position %s",
+                position.pk,
             )
-
-            rendered_certificate = render_certificate(
-                position=position,
-                event=event,
-            )
-
-            cache_file = CachedFile.objects.create(
-                filename="certificate_of_attendance.pdf",
-                expires=timezone.now() + datetime.timedelta(days=7),
-                file=rendered_certificate,
-            )
-
-            mail(
-                recipient,
-                subject,
-                message,
-                email_context,
-                event,
-                locale=order.locale,
-                order=order,
-                position=position,
-                attach_tickets=False,
-                attach_cached_files=[cache_file],
-            )
-
+            delivery.status = CertificateDelivery.STATUS_FAILED
+            delivery.error = str(exc)[:1000]
+            delivery.save(update_fields=["status", "error", "updated"])
             order.log_action(
-                "pretix_attendance_certificate.sent.attendee",
+                "pretix_attendance_certificate.failed.attendee",
                 user=user,
                 data={
                     "position": position.positionid,
-                    "subject": format_map(
-                        subject.localize(order.locale),
-                        email_context,
-                    ),
-                    "message": format_map(
-                        message.localize(order.locale),
-                        email_context,
-                    ),
                     "recipient": recipient,
+                    "error": delivery.error,
                 },
             )
+            continue
+
+        delivery.status = CertificateDelivery.STATUS_SENT
+        delivery.sent_at = timezone.now()
+        delivery.error = ""
+        delivery.save(update_fields=["status", "sent_at", "error", "updated"])
+        order.log_action(
+            "pretix_attendance_certificate.sent.attendee",
+            user=user,
+            data={
+                "position": position.positionid,
+                "subject": format_map(
+                    subject.localize(order.locale),
+                    email_context,
+                ),
+                "message": format_map(
+                    message.localize(order.locale),
+                    email_context,
+                ),
+                "recipient": recipient,
+            },
+        )
