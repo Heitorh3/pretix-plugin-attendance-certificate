@@ -43,7 +43,7 @@ def _order_url(event, order):
 def test_position_buttons_rendered(logged_in_client, event, order, pos, layout):
     response = logged_in_client.get(_order_url(event, order))
     assert response.status_code == 200
-    content = response.rendered_content
+    content = response.content.decode()
     assert _download_url(event, pos) in content
     assert "Email certificate" in content
 
@@ -56,7 +56,7 @@ def test_email_button_hidden_without_attendee_email(
         pos.attendee_email = None
         pos.save()
     response = logged_in_client.get(_order_url(event, order))
-    content = response.rendered_content
+    content = response.content.decode()
     # Download is always available, the email button is not.
     assert _download_url(event, pos) in content
     assert "Email certificate" not in content
@@ -81,7 +81,7 @@ def test_send_certificate_email(logged_in_client, event, order, pos, layout):
 
     assert len(djmail.outbox) == 1
     assert djmail.outbox[0].to == ["attendee@dummy.test"]
-    assert djmail.outbox[0].subject == "Your certificate of attendance"
+    assert djmail.outbox[0].subject == "[Dummy] Your certificate of attendance"
     assert any("attendee@dummy.test" in m for m in _messages(response))
 
     with scopes_disabled():
@@ -108,7 +108,7 @@ def test_send_certificate_without_email(logged_in_client, event, order, pos, lay
 def test_download_requires_permission(client, event, order, pos, layout):
     with scopes_disabled():
         user = User.objects.create_user("noperm@dummy.dummy", "noperm")
-        team = Team.objects.create(organizer=event.organizer, can_view_orders=False)
+        team = Team.objects.create(organizer=event.organizer)
         team.members.add(user)
         team.limit_events.add(event)
     client.force_login(user)

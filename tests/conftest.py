@@ -72,6 +72,7 @@ def order(event):
         expires=now() + datetime.timedelta(hours=1),
         total=13,
         code="DUMMY",
+        sales_channel=event.organizer.sales_channels.get(identifier="web"),
         email="dummy@dummy.test",
         datetime=now(),
         locale="en",
@@ -84,7 +85,6 @@ def pos(order, item):
         order=order,
         item=item,
         price=13,
-        admission=True,
         attendee_name_parts={"_legacy": "Marco Acierno"},
         attendee_email="attendee@dummy.test",
     )
@@ -95,8 +95,10 @@ def logged_in_client(client, event):
     user = User.objects.create_user("dummy@dummy.dummy", "dummy")
     team = Team.objects.create(
         organizer=event.organizer,
-        can_view_orders=True,
-        can_change_orders=True,
+        limit_event_permissions={
+            "event.orders:read": True,
+            "event.orders:write": True,
+        },
     )
     team.members.add(user)
     team.limit_events.add(event)
