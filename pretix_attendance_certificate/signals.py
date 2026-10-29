@@ -61,6 +61,18 @@ def control_nav_import(sender, request=None, **kwargs):
                     "active": url.namespace == "plugins:pretix_attendance_certificate"
                     and url.url_name == "send",
                 },
+                {
+                    "label": _("Delivery history"),
+                    "url": reverse(
+                        "plugins:pretix_attendance_certificate:deliveries",
+                        kwargs={
+                            "event": request.event.slug,
+                            "organizer": request.event.organizer.slug,
+                        },
+                    ),
+                    "active": url.namespace == "plugins:pretix_attendance_certificate"
+                    and url.url_name == "deliveries",
+                },
             ],
         }
     ]
@@ -147,6 +159,14 @@ def pretix_logentry_display(sender, logentry, **kwargs):
             "An email has been sent with the certificate of attendance "
             'to attendee "{attendee_name}"'
         ).format(attendee_name=order_position.attendee_name)
+
+    if logentry.action_type == "pretix_attendance_certificate.failed.attendee":
+        return _(
+            "The certificate of attendance could not be sent to {recipient}: {error}"
+        ).format(
+            recipient=logentry.parsed_data.get("recipient"),
+            error=logentry.parsed_data.get("error"),
+        )
 
     if (
         logentry.action_type

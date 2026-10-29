@@ -13,6 +13,8 @@ Used by [PyCon Italia](https://pycon.it).
   admission ticket from the pretix "Send out emails" page.
 - **Per-attendee actions:** download or email the certificate from the order
   page.
+- **Delivery history:** see every certificate that was sent, which ones
+  failed and why, and send it again.
 
 ## Installation
 
@@ -41,6 +43,7 @@ Attendance** section with these pages:
 | --- | --- |
 | Editor | Design the certificate layout and upload a background PDF. |
 | Send out certificates | Email the certificate to all attendees with a paid admission ticket. |
+| Delivery history | List every delivery with its status, and resend it. |
 | Settings | Edit the email text. |
 
 ### Designing the certificate
@@ -67,12 +70,31 @@ field for each language of the event. Placeholders such as `{event}` are
 replaced. These texts are used for the button on the order page. The default
 text is in English.
 
+### Delivery history
+
+*Certificate of Attendance → Delivery history* lists every certificate that
+has been sent for the event. For each one it shows:
+
+- order and attendee
+- recipient email
+- status: **Sending**, **Sent** or **Failed**
+- the error message, if it failed
+- when it was last tried and when it was sent
+
+You can filter the list by status and send a certificate again from there.
+Each order's history also records when a certificate was sent and when
+sending failed. A failed send does not stop the remaining attendees of a
+bulk send.
+
+**Sent** means the email was handed over to pretix's email queue. If the mail
+server rejects it later, pretix records that error in the order history.
+
 ### Permissions
 
 | Action | Required permission |
 | --- | --- |
-| Download certificates | View orders |
-| Email a certificate from the order page | Change orders |
+| View the delivery history, download certificates | View orders |
+| Email a certificate from the order page, resend from the history | Change orders |
 | Change the plugin settings | Change event settings |
 
 ## Development
@@ -107,12 +129,13 @@ the web server and the Celery workers.
 pretix_attendance_certificate/
 ├── apps.py               # plugin metadata and signal registration
 ├── email_defaults.py     # default email texts and plugin settings
-├── models.py             # certificate layout
+├── models.py             # certificate layout and delivery tracking
 ├── render.py             # renders the certificate PDF
 ├── signals.py            # menu entries, order page buttons, log messages
 ├── tasks.py              # Celery tasks that send the certificates
 ├── urls.py
 ├── views/
+│   ├── deliveries.py     # delivery history page
 │   ├── editor.py         # certificate layout editor
 │   ├── emails.py         # bulk sending page
 │   ├── positions.py      # download / email a single certificate

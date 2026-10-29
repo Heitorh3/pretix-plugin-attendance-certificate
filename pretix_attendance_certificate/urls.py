@@ -1,4 +1,5 @@
 from django.urls import re_path
+from .views.deliveries import DeliveryListView
 from .views.editor import EditorView
 from .views.emails import SendCertificateEmailView
 from .views.positions import DownloadCertificateView, SendCertificateView
@@ -24,6 +25,11 @@ urlpatterns = [
         r"^control/event/(?P<organizer>[^/]+)/(?P<event>[^/]+)/attendance-certificate/position/(?P<position>\d+)/send$",
         SendCertificateView.as_view(),
         name="position.send",
+    ),
+    re_path(
+        r"^control/event/(?P<organizer>[^/]+)/(?P<event>[^/]+)/attendance-certificate/deliveries/$",
+        DeliveryListView.as_view(),
+        name="deliveries",
     ),
     re_path(
         r"^control/event/(?P<organizer>[^/]+)/(?P<event>[^/]+)/attendance-certificate/settings/$",
