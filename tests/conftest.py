@@ -104,3 +104,16 @@ def logged_in_client(client, event):
     team.limit_events.add(event)
     client.force_login(user)
     return client
+
+
+@pytest.fixture
+def settings_client(client, event):
+    user = User.objects.create_user("admin@dummy.dummy", "dummy")
+    team = Team.objects.create(
+        organizer=event.organizer,
+        limit_event_permissions={"event.settings.general:write": True},
+    )
+    team.members.add(user)
+    team.limit_events.add(event)
+    client.force_login(user)
+    return client

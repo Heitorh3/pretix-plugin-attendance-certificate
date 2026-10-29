@@ -2,6 +2,7 @@ from django.urls import re_path
 from .views.editor import EditorView
 from .views.emails import SendCertificateEmailView
 from .views.positions import DownloadCertificateView, SendCertificateView
+from .views.settings import AttendanceCertificateSettingsView
 
 urlpatterns = [
     re_path(
@@ -23,5 +24,10 @@ urlpatterns = [
         r"^control/event/(?P<organizer>[^/]+)/(?P<event>[^/]+)/attendance-certificate/position/(?P<position>\d+)/send$",
         SendCertificateView.as_view(),
         name="position.send",
+    ),
+    re_path(
+        r"^control/event/(?P<organizer>[^/]+)/(?P<event>[^/]+)/attendance-certificate/settings/$",
+        AttendanceCertificateSettingsView.as_view(),
+        name="settings",
     ),
 ]

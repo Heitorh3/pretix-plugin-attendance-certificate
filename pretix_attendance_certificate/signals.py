@@ -6,6 +6,7 @@ from django.utils.safestring import mark_safe
 from pretix_attendance_certificate.views.emails import SendCertificateEmailView
 from pretix.control.signals import (
     nav_event,
+    nav_event_settings,
     order_position_buttons,
 )
 from pretix.plugins.sendmail.signals import sendmail_view_classes
@@ -23,7 +24,7 @@ def control_nav_import(sender, request=None, **kwargs):
     )
     if not p:
         return []
-    return [
+    nav = [
         {
             "label": _("Certificate of Attendance"),
             "url": reverse(
@@ -61,6 +62,47 @@ def control_nav_import(sender, request=None, **kwargs):
                     and url.url_name == "send",
                 },
             ],
+        }
+    ]
+    if request.user.has_event_permission(
+        request.organizer, request.event, "can_change_event_settings", request
+    ):
+        nav[0]["children"].append(
+            {
+                "label": _("Settings"),
+                "url": reverse(
+                    "plugins:pretix_attendance_certificate:settings",
+                    kwargs={
+                        "event": request.event.slug,
+                        "organizer": request.event.organizer.slug,
+                    },
+                ),
+                "active": url.namespace == "plugins:pretix_attendance_certificate"
+                and url.url_name == "settings",
+            }
+        )
+    return nav
+
+
+@receiver(nav_event_settings, dispatch_uid="certificate_of_attendance_nav_settings")
+def control_nav_settings(sender, request=None, **kwargs):
+    if not request.user.has_event_permission(
+        request.organizer, request.event, "can_change_event_settings", request
+    ):
+        return []
+    url = resolve(request.path_info)
+    return [
+        {
+            "label": _("Certificate of Attendance"),
+            "url": reverse(
+                "plugins:pretix_attendance_certificate:settings",
+                kwargs={
+                    "event": request.event.slug,
+                    "organizer": request.event.organizer.slug,
+                },
+            ),
+            "active": url.namespace == "plugins:pretix_attendance_certificate"
+            and url.url_name == "settings",
         }
     ]
 

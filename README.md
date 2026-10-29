@@ -41,6 +41,7 @@ Attendance** section with these pages:
 | --- | --- |
 | Editor | Design the certificate layout and upload a background PDF. |
 | Send out certificates | Email the certificate to all attendees with a paid admission ticket. |
+| Settings | Edit the email text. |
 
 ### Designing the certificate
 
@@ -58,12 +59,21 @@ downloads the PDF for that attendee.
   attendance** next to the ticket. This button is shown only when the ticket
   has an attendee email.
 
+### Email text
+
+*Certificate of Attendance → Settings* (also listed under the event
+*Settings* menu) has the **email subject** and **email text**, with one
+field for each language of the event. Placeholders such as `{event}` are
+replaced. These texts are used for the button on the order page. The default
+text is in English.
+
 ### Permissions
 
 | Action | Required permission |
 | --- | --- |
 | Download certificates | View orders |
 | Email a certificate from the order page | Change orders |
+| Change the plugin settings | Change event settings |
 
 ## Development
 
@@ -96,7 +106,7 @@ the web server and the Celery workers.
 ```text
 pretix_attendance_certificate/
 ├── apps.py               # plugin metadata and signal registration
-├── email_defaults.py     # default email texts
+├── email_defaults.py     # default email texts and plugin settings
 ├── models.py             # certificate layout
 ├── render.py             # renders the certificate PDF
 ├── signals.py            # menu entries, order page buttons, log messages
@@ -105,7 +115,8 @@ pretix_attendance_certificate/
 ├── views/
 │   ├── editor.py         # certificate layout editor
 │   ├── emails.py         # bulk sending page
-│   └── positions.py      # download / email a single certificate
+│   ├── positions.py      # download / email a single certificate
+│   └── settings.py       # plugin settings page
 └── templates/
 ```
 
