@@ -1,3 +1,4 @@
+from django import forms
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from i18nfield.forms import I18nFormField, I18nTextarea, I18nTextInput
@@ -8,6 +9,15 @@ from pretix.control.views.event import EventSettingsFormView, EventSettingsViewM
 
 
 class AttendanceCertificateSettingsForm(SettingsForm):
+    attendance_certificate_auto_send = forms.BooleanField(
+        label=_("Send certificates automatically after check-in"),
+        help_text=_(
+            "Each attendee receives the certificate of attendance by email "
+            "after their first successful entry check-in. Further check-ins do "
+            "not send it again."
+        ),
+        required=False,
+    )
     attendance_certificate_mail_subject = I18nFormField(
         label=_("Email subject"),
         widget=I18nTextInput,
@@ -15,7 +25,7 @@ class AttendanceCertificateSettingsForm(SettingsForm):
     attendance_certificate_mail_text = I18nFormField(
         label=_("Email text"),
         help_text=_(
-            "Used for the button on the order page. "
+            "Used for automatic sends and for the button on the order page. "
             "Placeholders such as {event} are replaced."
         ),
         widget=I18nTextarea,

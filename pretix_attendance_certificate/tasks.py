@@ -19,9 +19,61 @@ from pretix.base.email import get_email_context
 from pretix_attendance_certificate.render import render_certificate
 from pretix_attendance_certificate.models import CertificateDelivery
 
+from pretix.base.models import Checkin
+
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def has_valid_checkin(position):
+    """
+    Checks whether the participant is present.
+
+    Considers the most recent successful check-in record.
+    An entry confirms presence.
+    An exit ends presence.
+    """
+    last_checkin = (
+        Checkin.objects.filter(
+            position=position,
+            successful=True,
+        )
+        .order_by("-datetime", "-pk")
+        .first()
+    )
+
+    return last_checkin is not None and last_checkin.type == "entry"
+
+
+@app.task(base=ProfiledEventTask, acks_late=True)
+def send_automatic_certificate(event: Event, position_id: int):
+    from pretix_attendance_certificate.email_defaults import mail_texts
+
+    position = OrderPosition.objects.get(
+        pk=position_id,
+        order__event=event,
+    )
+
+    if not has_valid_checkin(position):
+        return
+
+    if position.canceled or position.order.status != "p":
+        return
+
+    recipient = position.attendee_email or position.order.email
+    if not recipient:
+        return
+
+    send_certificate_of_attendance_mails.apply_async(
+        kwargs={
+            "event": event.pk,
+            "user": None,
+            **mail_texts(event),
+            "objects": [position.pk],
+            "automatic": True,
+        }
+    )
 
 
 @app.task(base=ProfiledEventTask, acks_late=True)
@@ -31,6 +83,7 @@ def send_certificate_of_attendance_mails(
     subject: dict,
     message: dict,
     objects: list,
+    automatic: bool = False,
 ):
     user = User.objects.get(pk=user) if user else None
 
@@ -44,6 +97,17 @@ def send_certificate_of_attendance_mails(
 
     for position in positions:
         order = position.order
+
+        if not has_valid_checkin(position):
+            order.log_action(
+                "pretix_attendance_certificate.skipped.no_checkin",
+                user=user,
+                data={
+                    "position": position.positionid,
+                    "reason": "No valid check-in found",
+                },
+            )
+            continue
 
         # Prioriza o e-mail individual do participante.
         # Se estiver vazio, utiliza o e-mail do pedido.
@@ -68,17 +132,33 @@ def send_certificate_of_attendance_mails(
                 defaults={
                     "status": CertificateDelivery.STATUS_SENDING,
                     "recipient": recipient,
+                    "automatic": automatic,
                 },
             )
+            # Automatic sends happen at most once per position. Only a failed
+            # attempt is retried, on the next check-in.
+            if (
+                automatic
+                and not created
+                and delivery.status != CertificateDelivery.STATUS_FAILED
+            ):
+                order.log_action(
+                    "pretix_attendance_certificate.skipped.duplicate",
+                    user=user,
+                    data={"position": position.positionid},
+                )
+                continue
             if not created:
                 delivery.status = CertificateDelivery.STATUS_SENDING
                 delivery.recipient = recipient
+                delivery.automatic = automatic
                 delivery.sent_at = None
                 delivery.error = ""
                 delivery.save(
                     update_fields=[
                         "status",
                         "recipient",
+                        "automatic",
                         "sent_at",
                         "error",
                         "updated",

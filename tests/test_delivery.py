@@ -9,7 +9,7 @@ from pretix_attendance_certificate import tasks
 from pretix_attendance_certificate.models import CertificateDelivery
 
 
-def _run_delivery(event, position):
+def _run_delivery(event, position, automatic=False):
     with scope(organizer=event.organizer):
         return tasks.send_certificate_of_attendance_mails.run(
             event=event,
@@ -17,10 +17,12 @@ def _run_delivery(event, position):
             subject={"en": "Certificate"},
             message={"en": "Your certificate"},
             objects=[position.pk],
+            automatic=automatic,
         )
 
 
 def _mock_delivery_dependencies(monkeypatch, mail):
+    monkeypatch.setattr(tasks, "has_valid_checkin", lambda position: True)
     monkeypatch.setattr(tasks, "get_email_context", lambda **kwargs: {})
     monkeypatch.setattr(tasks, "render_certificate", lambda **kwargs: Mock())
     monkeypatch.setattr(tasks, "language", lambda *args: nullcontext())
@@ -86,6 +88,60 @@ def test_failed_delivery_can_be_retried(event, pos, monkeypatch):
     delivery = CertificateDelivery.objects.get(position=pos)
     assert delivery.status == CertificateDelivery.STATUS_SENT
     assert delivery.error == ""
+
+
+@pytest.mark.django_db
+def test_automatic_delivery_skips_second_attempt(event, pos, monkeypatch):
+    mail = Mock()
+    _mock_delivery_dependencies(monkeypatch, mail)
+
+    _run_delivery(event, pos, automatic=True)
+    _run_delivery(event, pos, automatic=True)
+
+    assert mail.call_count == 1
+    delivery = CertificateDelivery.objects.get(position=pos)
+    assert delivery.status == CertificateDelivery.STATUS_SENT
+    assert delivery.automatic is True
+
+
+@pytest.mark.django_db
+def test_manual_delivery_can_be_resent_after_automatic_delivery(
+    event, pos, monkeypatch
+):
+    mail = Mock()
+    _mock_delivery_dependencies(monkeypatch, mail)
+
+    _run_delivery(event, pos, automatic=True)
+    _run_delivery(event, pos, automatic=False)
+
+    assert mail.call_count == 2
+    assert CertificateDelivery.objects.get(position=pos).automatic is False
+
+
+@pytest.mark.django_db
+def test_failed_automatic_delivery_is_retried(event, pos, monkeypatch):
+    mail = Mock(side_effect=[RuntimeError("mail server unavailable"), None])
+    _mock_delivery_dependencies(monkeypatch, mail)
+
+    _run_delivery(event, pos, automatic=True)
+    _run_delivery(event, pos, automatic=True)
+
+    assert mail.call_count == 2
+    delivery = CertificateDelivery.objects.get(position=pos)
+    assert delivery.status == CertificateDelivery.STATUS_SENT
+    assert delivery.error == ""
+
+
+@pytest.mark.django_db
+def test_delivery_without_checkin_is_skipped(event, pos, monkeypatch):
+    mail = Mock()
+    _mock_delivery_dependencies(monkeypatch, mail)
+    monkeypatch.setattr(tasks, "has_valid_checkin", lambda position: False)
+
+    _run_delivery(event, pos)
+
+    mail.assert_not_called()
+    assert not CertificateDelivery.objects.filter(position=pos).exists()
 
 
 @pytest.mark.django_db

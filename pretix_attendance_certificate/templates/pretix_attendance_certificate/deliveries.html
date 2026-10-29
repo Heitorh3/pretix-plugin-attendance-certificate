@@ -26,6 +26,7 @@
                     <th>{% trans "Attendee" %}</th>
                     <th>{% trans "Recipient" %}</th>
                     <th>{% trans "Status" %}</th>
+                    <th>{% trans "Trigger" %}</th>
                     <th>{% trans "Last attempt" %}</th>
                     <th>{% trans "Sent at" %}</th>
                     {% if can_resend %}<th></th>{% endif %}
@@ -52,6 +53,9 @@
                             {% if d.status == "failed" and d.error %}
                                 <br><small class="text-muted">{{ d.error|truncatechars:120 }}</small>
                             {% endif %}
+                        </td>
+                        <td>
+                            {% if d.automatic %}{% trans "Check-in" %}{% else %}{% trans "Manual" %}{% endif %}
                         </td>
                         <td>{{ d.updated|date:"SHORT_DATETIME_FORMAT" }}</td>
                         <td>{% if d.sent_at %}{{ d.sent_at|date:"SHORT_DATETIME_FORMAT" }}{% endif %}</td>

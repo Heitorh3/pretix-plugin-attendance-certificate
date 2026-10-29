@@ -7,6 +7,7 @@ from django.utils.timezone import now
 from django_scopes import scopes_disabled
 
 from pretix.base.models import (
+    Checkin,
     Event,
     Item,
     Order,
@@ -87,6 +88,14 @@ def pos(order, item):
         price=13,
         attendee_name_parts={"_legacy": "Marco Acierno"},
         attendee_email="attendee@dummy.test",
+    )
+
+
+@pytest.fixture
+def checkin(event, pos):
+    checkin_list = event.checkin_lists.create(name="Default")
+    return Checkin.objects.create(
+        position=pos, list=checkin_list, type=Checkin.TYPE_ENTRY
     )
 
 

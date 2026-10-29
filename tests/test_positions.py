@@ -73,7 +73,9 @@ def test_download_certificate(logged_in_client, event, order, pos, layout):
 
 
 @pytest.mark.django_db
-def test_send_certificate_email(logged_in_client, event, order, pos, layout):
+def test_send_certificate_email(
+    logged_in_client, event, order, pos, layout, checkin
+):
     djmail.outbox = []
     response = logged_in_client.post(_send_url(event, pos))
     assert response.status_code == 302

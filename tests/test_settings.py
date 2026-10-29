@@ -3,7 +3,7 @@ from django.urls import reverse
 
 
 @pytest.mark.django_db
-def test_settings_page_saves_mail_texts(settings_client, event):
+def test_settings_page_saves_auto_send_and_mail_texts(settings_client, event):
     url = reverse(
         "plugins:pretix_attendance_certificate:settings",
         kwargs={"organizer": event.organizer.slug, "event": event.slug},
@@ -13,6 +13,7 @@ def test_settings_page_saves_mail_texts(settings_client, event):
     response = settings_client.post(
         url,
         {
+            "attendance_certificate_auto_send": "on",
             "attendance_certificate_mail_subject_0": "Seu certificado",
             "attendance_certificate_mail_text_0": "Olá {event}",
         },
@@ -20,6 +21,7 @@ def test_settings_page_saves_mail_texts(settings_client, event):
 
     assert response.status_code == 302
     event.settings.flush()
+    assert event.settings.attendance_certificate_auto_send is True
     assert str(event.settings.attendance_certificate_mail_subject) == (
         "Seu certificado"
     )

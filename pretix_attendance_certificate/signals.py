@@ -168,6 +168,12 @@ def pretix_logentry_display(sender, logentry, **kwargs):
             error=logentry.parsed_data.get("error"),
         )
 
+    if logentry.action_type == "pretix_attendance_certificate.skipped.duplicate":
+        return _(
+            "The certificate of attendance was not sent automatically because it "
+            "has already been sent."
+        )
+
     if (
         logentry.action_type
         == "pretix.plugins.pretix_attendance_certificate.layout.changed"

@@ -39,6 +39,7 @@ class CertificateDelivery(models.Model):
         default=STATUS_SENDING,
     )
     recipient = models.EmailField(blank=True)
+    automatic = models.BooleanField(default=False)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
     sent_at = models.DateTimeField(null=True, blank=True)

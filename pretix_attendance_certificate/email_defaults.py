@@ -12,6 +12,7 @@ DEFAULT_MESSAGE = gettext_noop(
     "Best regards"
 )
 
+settings_hierarkey.add_default("attendance_certificate_auto_send", False, bool)
 settings_hierarkey.add_default(
     "attendance_certificate_mail_subject",
     LazyI18nString.from_gettext(DEFAULT_SUBJECT),
